@@ -1,19 +1,19 @@
 # IB MoonBit API Wrapper - WebAssembly Target
 
-**Purpose**: This is the WebAssembly target-specific implementation of IB TWS/Gateway API wrapper for MoonBit.
+**Purpose**: This is the WebAssembly target-specific implementation of the IB TWS/Gateway API wrapper for MoonBit.
 
 ## Why This Project Exists?
 
-Due to a MoonBit language limitation, the main [ibmoon](../ibmoon) project cannot use target-specific FFI implementations when building with explicit targets. This project provides a working WebAssembly implementation that uses WebAssembly FFI layer directly.
+Due to a MoonBit language limitation, the main [ibmoon](../ibmoon) project cannot use target-specific FFI implementations when building with explicit targets. This project provides a working WebAssembly implementation that uses the WebAssembly FFI layer directly.
 
 **See the [main ibmoon project](../ibmoon) for complete documentation on the FFI limitation and why multiple target-specific projects are needed.**
 
 ## Features
 
-- **Target**: WebAssembly (wasm-gc)
+- **Target**: WebAssembly (Wasm)
 - **FFI Implementation**: Uses WebAssembly host functions for socket operations
-- **Use Case**: Browser environments, web applications
-- **Portability**: Runs in any WebAssembly-compatible runtime
+- **Use Case**: Browser environments, WebAssembly runtimes
+- **Performance**: Efficient for browser-based applications
 
 ## Installation
 
@@ -33,10 +33,10 @@ Due to a MoonBit language limitation, the main [ibmoon](../ibmoon) project canno
 
 ```bash
 # Build for WebAssembly target
-moon build --target wasm-gc
+moon build --target wasm
 
 # Run tests
-moon test --target wasm-gc
+moon test --target wasm
 ```
 
 ## Usage
@@ -82,22 +82,56 @@ match ibmoon::client_connect(client) {
 
 ```bash
 # Run managed accounts example
-moon run --target wasm-gc cmd/main/example_managed_accounts
+moon run --target wasm cmd/main/example_managed_accounts
 
 # Run account summary example
-moon run --target wasm-gc cmd/main/example_account_summary
+moon run --target wasm cmd/main/example_account_summary
 
 # Run positions example
-moon run --target wasm-gc cmd/main/example_positions
+moon run --target wasm cmd/main/example_positions
 ```
 
 ## Prerequisites
 
-- **WebAssembly Runtime**: Any WebAssembly-compatible runtime (browsers, Node.js, wasmtime, etc.)
+- **WebAssembly Runtime**: Required for Wasm execution (browser or Wasmtime/WasmEdge)
 - **IB TWS or IB Gateway**: Must be running and configured with API access
 - **API Port**: Default is 7496 for paper trading, 7497 for live trading
 - **API Connections**: Must be enabled in TWS/Gateway settings
-- **Host Functions**: Runtime must provide socket host functions (see socket.wat)
+
+## Browser-Specific Setup
+
+**Important**: WebAssembly cannot directly access TCP sockets from the browser. You need to use a WebSocket proxy:
+
+### Option 1: WebSocket Proxy Server
+
+Set up a WebSocket proxy server that forwards connections to IB TWS/Gateway:
+
+```javascript
+// Example Node.js proxy server
+const WebSocket = require('ws');
+const net = require('net');
+
+const wss = new WebSocket.Server({ port: 8080 });
+
+wss.on('connection', (ws) => {
+  const client = net.createConnection({ host: '127.0.0.1', port: 7496 });
+  
+  ws.on('message', (data) => {
+    client.write(data);
+  });
+  
+  client.on('data', (data) => {
+    ws.send(data);
+  });
+  
+  client.on('close', () => ws.close());
+  ws.on('close', () => client.destroy());
+});
+```
+
+### Option 2: Host Function Integration
+
+For non-browser WebAssembly runtimes (Wasmtime, WasmEdge), you can provide host functions that implement socket operations directly.
 
 ## Testing with Live IB API
 
@@ -106,110 +140,80 @@ To test with a live IB API:
 1. Start IB TWS or IB Gateway
 2. Enable API connections on port 7496
 3. Ensure client ID is not already in use
-4. Run integration test:
+4. Set up WebSocket proxy if running in browser
+5. Run integration test:
 
 ```bash
-moon test --target wasm-gc
+moon test --target wasm
 ```
 
 ## Architecture
 
 ### Socket Layer
 - **File**: `socket.mbt`
-- **FFI File**: `socket.wat` (WebAssembly Text format)
-- **Implementation**: Uses WebAssembly host functions for socket operations
-- **Host Functions Required**:
-  - `ibmoon_socket_connect`
-  - `ibmoon_socket_send`
-  - `ibmoon_socket_receive`
-  - `ibmoon_socket_close`
+- **FFI File**: `socket.wat`
+- **Implementation**: Uses WebAssembly host functions for TCP connections
 
 ### Core Files
 All core IB API files are included:
-- `types.mbt` - Data types for contracts, orders, etc.
-- `orders.mbt` - Order types and helpers
-- `protocol.mbt` - Message protocol definitions
-- `encoder.mbt` - Message encoding
-- `decoder.mbt` - Message decoding
-- `client.mbt` - Connection and client management
 - `api.mbt` - High-level API wrapper
+- `client.mbt` - Connection and client management
+- `decoder.mbt` - Message decoding
+- `encoder.mbt` - Message encoding
 - `handlers.mbt` - Message handlers for callbacks
+- `protocol.mbt` - Message protocol definitions
+- `socket.mbt` - Socket abstraction layer
+- `ibmoon.mbt` - Main package interface
 
 ## WebAssembly-Specific Notes
 
-- **Runtime**: Requires WebAssembly-compatible runtime
-- **Host Functions**: Socket operations are provided by host environment
-- **Browser Limitations**: Direct TCP connections from browser are restricted
-  - Use WebSocket proxy for browser-based applications
-  - Consider using [ibmoonjs](../ibmoonjs) for Node.js environments
-- **Memory**: Linear memory model, careful with buffer management
-- **Error Handling**: WebAssembly traps are converted to MoonBit `Result` types
-- **Socket Lifecycle**: Sockets must be explicitly closed to free resources
+- **Runtime**: Requires WebAssembly runtime environment
+- **Host Functions**: Socket operations require host function implementations
+- **Browser Limitations**: Cannot directly access TCP sockets from browser
+- **WebSocket Proxy**: Required for browser-based applications
+- **Memory Management**: WebAssembly linear memory managed by runtime
 
-## Browser Usage
+## Browser Usage Example
 
-**Important**: Direct TCP socket connections are restricted in web browsers. To use ibmoonwa in a browser:
-
-1. **WebSocket Proxy**: Set up a WebSocket proxy that forwards to IB API
-2. **Modified Socket Implementation**: Replace socket layer with WebSocket-based implementation
-3. **CORS Configuration**: Ensure proxy handles CORS properly
-4. **Security**: Browser applications must handle authentication securely
-
-Alternatively, for server-side Node.js applications, use [ibmoonjs](../ibmoonjs) instead.
-
-## Runtime Support
-
-### Browsers
-- Chrome, Firefox, Safari, Edge (modern versions)
-- Requires WebSocket proxy for network access
-- Good for client-side trading interfaces
-
-### Node.js
-- Supported via `wasmtime` or similar WebAssembly runtime
-- Slower than native JavaScript (ibmoonjs)
-- Use [ibmoonjs](../ibmoonjs) for better Node.js performance
-
-### Standalone Runtimes
-- `wasmtime` - Standalone WebAssembly runtime
-- `wasmer` - High-performance WebAssembly runtime
-- `wasmtime` - Fast and lightweight
-
-## Performance Characteristics
-
-- **Connection Speed**: Moderate (WebAssembly overhead)
-- **Message Throughput**: Good (near-native with optimization)
-- **Memory Usage**: Low (compact WebAssembly binary)
-- **CPU Usage**: Efficient (WebAssembly execution)
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <title>IB MoonBit - WebAssembly</title>
+</head>
+<body>
+  <script>
+    // Load WebAssembly module
+    const response = await fetch('ibmoonwa.wasm');
+    const bytes = await response.arrayBuffer();
+    const { instance } = await WebAssembly.instantiate(bytes, {
+      // Provide host functions for socket operations
+      env: {
+        socket_connect: (addr, timeout) => { /* ... */ },
+        socket_send: (socket, data, len) => { /* ... */ },
+        socket_recv: (socket, buffer, len) => { /* ... */ },
+        socket_close: (socket) => { /* ... */ }
+      }
+    });
+    
+    // Use the module
+    // ...
+  </script>
+</body>
+</html>
+```
 
 ## Limitations
 
-- **Browser TCP**: Direct TCP connections not supported in browsers
-- **Host Functions**: Requires runtime to provide socket host functions
-- **Debugging**: More difficult than native targets
-- **Tooling**: Less mature than JavaScript or C tooling
-
-## When to Use ibmoonwa
-
-### Use ibmoonwa When:
-- Building browser-based trading interfaces with WebSocket proxy
-- Need portable binary that runs on any WebAssembly runtime
-- Targeting environments where JavaScript runtime is not available
-- Want smallest possible binary size
-
-### Use ibmoonjs When:
-- Building Node.js server applications
-- Need better performance in Node.js environment
-- Want easier debugging and development experience
-
-### Use ibmoonc When:
-- Building native applications for Linux/macOS
-- Need maximum performance
-- Targeting production server environments
+- **Browser TCP Access**: WebAssembly cannot directly access TCP sockets from browser
+- **WebSocket Proxy Required**: Browser applications need a WebSocket proxy server
+- **Host Function Complexity**: Requires careful implementation of host functions
+- **Debugging**: WebAssembly debugging can be more challenging than native code
 
 ## Related Projects
 
 - **[ibmoon](../ibmoon)** - Main project with complete documentation
-- **[ibmoonjs](../ibmoonjs)** - JavaScript/Node.js target for server-side apps
+- **[ibmoonjs](../ibmoonjs)** - JavaScript/Node.js target for server-side applications
 - **[ibmoonc](../ibmoonc)** - C/Native target for native performance
 
 ## License

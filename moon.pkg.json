@@ -1,1 +1,9 @@
-{}
+{
+    "is-link": true,
+    "link": {
+        "wasm": {
+            "path": "socket.wat",
+            "wasm-ffi": true
+        }
+    }
+}
