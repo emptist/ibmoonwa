@@ -2,7 +2,7 @@
   "is-main": true,
   "import": [
     {
-      "path": "username/ibmoonwa",
+      "path": "emptist/ibmoonwa",
       "alias": "lib"
     }
   ]
